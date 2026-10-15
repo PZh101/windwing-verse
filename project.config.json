@@ -1,0 +1,20 @@
+{
+  "compileType": "game",
+  "appid": "touristappid",
+  "projectname": "windwing-verse",
+  "miniprogramRoot": "./",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "postcss": true,
+    "urlCheck": false
+  },
+  "packOptions": {
+    "ignore": [
+      { "type": "folder", "value": "node_modules" },
+      { "type": "folder", "value": "tests" },
+      { "type": "file", "value": "README.md" }
+    ]
+  }
+}

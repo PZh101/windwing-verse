@@ -1,0 +1,10 @@
+# 项目本地记忆 / 会话日志（含隐私，不入库）
+.workbuddy/
+
+# 端到端截图产物（可由 node tests/e2e.js 重新生成，约 8MB）
+tests/shots/
+
+# 依赖与日志
+node_modules/
+*.log
+.DS_Store

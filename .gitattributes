@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+# 二进制/已压缩资源不做换行转换
+*.png binary
+*.jpg binary
+*.min.js -text
