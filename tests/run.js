@@ -5,6 +5,7 @@
 
 const files = [
   './rng.test.js',
+  './platform.test.js',
   './spawner.test.js',
   './collision.test.js',
   './speed.test.js',

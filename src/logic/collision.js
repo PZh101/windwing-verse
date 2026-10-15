@@ -18,9 +18,15 @@ function circlesOverlap(a, b) {
 /**
  * 从活跃障碍中找出与玩家碰撞的第一个障碍
  *
- * 采用「扫掠判定」而非点判定：障碍本帧从 z-sweep 移动到 z，
- * 只要这段区间与玩家所在的判定窗口 [-zWindow, zWindow] 有交集就参与圆检测。
- * 这样即使掉帧或高速冲刺（单帧位移远大于窗口）也不会穿透。
+ * 采用「扫掠判定」而非点判定：障碍本帧还要从当前 z 继续前进 sweep（朝 +z、
+ * 即朝玩家所在的 z=0 平面逼近），只要这段区间 [z, z+sweep] 与玩家所在的判定
+ * 窗口 [-zWindow, zWindow] 有交集就参与圆检测。掉帧或高速冲刺时单帧位移
+ * 远大于窗口也不会穿透——区间相交对任意 sweep 都成立，不存在隧穿窗口。
+ *
+ * ⚠️ 调用约定：`z` 必须是**本帧位移之前**的位置，`sweep` 是本帧剩余的位移量。
+ * world.js 里障碍是 `z += speed*dt`（向 +z 移动），所以 main.js 在
+ * `world.update()` 之前取快照、之后才知道 move 的写法是对的；
+ * 若把区间写成 [z, z+sweep] 之外的任何形式都会漏判窗口后方的障碍。
  *
  * @param {{x:number,y:number,radius:number}} player
  * @param {Array<{x:number,y:number,radius:number,z:number}>} obstacles
@@ -30,10 +36,12 @@ function circlesOverlap(a, b) {
  */
 function findCollision(player, obstacles, zWindow, sweep) {
   const lo = -zWindow
-  const hi = zWindow + (sweep || 0)
+  const hi = zWindow
+  const s = Math.max(0, sweep || 0)
   for (const ob of obstacles) {
     if (ob.dead) continue
-    if (ob.z < lo || ob.z > hi) continue
+    // 区间 [ob.z, ob.z + s] 与 [lo, hi] 无交集 => 本帧不会经过玩家走廊
+    if (ob.z > hi || ob.z + s < lo) continue
     if (circlesOverlap(player, ob)) return ob
   }
   return null

@@ -42,16 +42,35 @@ module.exports = {
     assert.strictEqual(findCollision(player, [rock], 1.7), null)
   },
   '扫掠判定：单帧位移远大于窗口时不会穿透（掉帧/高速冲刺）': () => {
-    const player = { x: 0, y: 0, radius: 0.95 }
-    // 障碍本帧从 z=-3 一路跨到 z=+2.6（窗口只有 1.7），点判定会漏掉
-    const swept = { x: 0.3, y: 0, radius: 1.4, z: 2.6, id: 'swept' }
-    assert.strictEqual(findCollision(player, [swept], 1.7), null, '不带 sweep 时确实会漏（旧行为）')
-    const hit = findCollision(player, [swept], 1.7, 5.6)
-    assert.ok(hit && hit.id === 'swept', '带 sweep 后应命中')
+    const player = { x: 0.3, y: 0, radius: 0.95 }
+    // 调用约定：z 是本帧位移「之前」的位置，sweep 是本帧还要走的位移（障碍朝 +z 扑向玩家）
+    // 障碍从 z=-3.0 出发，本帧位移 5.6 -> 终点 z=+2.6，必定穿过 [-1.7, 1.7]，点判定会漏掉
+    const incoming = { x: 0.3, y: 0, radius: 1.4, z: -3.0, id: 'incoming' }
+    assert.strictEqual(findCollision(player, [incoming], 1.7), null, '不带 sweep 时确实会漏（纯点判定）')
+    assert.ok(findCollision(player, [incoming], 1.7, 5.6), '带 sweep 后应命中')
 
-    // 但已经远离玩家很久的障碍（上一帧就飞过去了）不应被误判
+    // 已经飞过玩家、且继续远离的障碍不应被误判
     const gone = { x: 0.3, y: 0, radius: 1.4, z: 9, id: 'gone' }
     assert.strictEqual(findCollision(player, [gone], 1.7, 1.0), null)
+  },
+
+  '扫掠判定：窗口后方的障碍本帧即将进入走廊时必须命中（回归）': () => {
+    const player = { x: 0.3, y: 0, radius: 0.95 }
+    // z=-3.0 还在窗口后方，但本帧移动 2.0 后到 -1.0，已进入 [-1.7, 1.7]
+    // 旧实现把区间写成 [-win, win+sweep]，ob.z < -win 的会被直接跳过 -> 漏判
+    const behind = { x: 0.3, y: 0, radius: 1.4, z: -3.0, id: 'behind' }
+    assert.ok(findCollision(player, [behind], 1.7, 2.0), '本帧将进入走廊的障碍应命中')
+
+    // 再扫一遍：对任意 sweep，代码判定都必须等于真实的区间相交
+    const win = 1.7
+    for (const sweep of [0, 0.4, 1.1, 2.0, 3.29, 8]) {
+      for (let z = -8; z <= 8; z += 0.05) {
+        const ob = [{ x: 0.3, y: 0, radius: 1.4, z }]
+        const code = !!findCollision(player, ob, win, sweep)
+        const real = z <= win && z + Math.max(0, sweep) >= -win
+        assert.strictEqual(code, real, `sweep=${sweep} z=${z.toFixed(2)} 判定与真实区间相交不一致`)
+      }
+    }
   },
   'findNearMiss 只认已越过平面且没真撞上的障碍': () => {
     const player = { x: 0, y: 0, radius: 1 }

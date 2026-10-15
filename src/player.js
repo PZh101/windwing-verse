@@ -18,6 +18,9 @@ const C = {
   scarf: '#e23b4e',
 }
 
+// 扇翅初始相位：固定值，保证每次启动的第一帧姿态一致（e2e 截图可比对）
+const FLAP_PHASE0 = 1.2
+
 function mat(color, opts) {
   return new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.85, metalness: 0.05 }, opts || {}))
 }
@@ -29,7 +32,7 @@ class WindGlider {
     this.time = 0
     this.bank = 0
     this.pitch = 0
-    this.flapPhase = Math.random() * Math.PI * 2
+    this.flapPhase = FLAP_PHASE0
   }
 
   _build() {
@@ -187,11 +190,6 @@ class WindGlider {
     this.boostGlow.scale.set(pulse, pulse, 1)
 
     this.root.visible = !s.hidden
-  }
-
-  /** 世界坐标下的引擎尾焰位置（粒子发射点） */
-  emitterPosition(target) {
-    return target.set(this.root.position.x, this.root.position.y + 0.15, this.root.position.z + 1.0)
   }
 }
 

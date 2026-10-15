@@ -86,9 +86,14 @@ const SPAWN = {
 const OBSTACLE = {
   rock:  { radius: 1.35, scale: [0.8, 1.5] },
   storm: { radius: 1.7,  scale: [0.9, 1.4] },
-  bird:  { radius: 0.8,  scale: [0.85, 1.15] },
+  // spread：单只鸟到鸟群中心的横向间距（obstacles.js 摆位也用这个值，
+  // 碰撞圆必须按 flock 数量撑开，否则边上那只鸟看得见却撞不到）
+  bird:  { radius: 0.8,  scale: [0.85, 1.15], spread: 0.85 },
   stele: { radius: 1.5,  scale: [0.95, 1.1] },
 }
+
+// 鸟群每只的间距（生成与建模共用，见 OBSTACLE.bird.spread）
+const BIRD_SPREAD = OBSTACLE.bird.spread
 
 // 生命与咒语
 const RULES = {
@@ -142,6 +147,7 @@ module.exports = {
   SPEED,
   SPAWN,
   OBSTACLE,
+  BIRD_SPREAD,
   RULES,
   SCORE,
   CAMERA,

@@ -22,6 +22,7 @@ const STEER_X = 0.024 // 触摸位移(css px) -> 世界单位
 const STEER_Y = 0.017
 const RESOLVE_HOLD = 1.7 // 诗咒结算展示时长
 const FALL_TIME = 1.15 // 坠落动画时长
+const MAX_FRAME_ERRORS = 30 // 连续异常帧数上限，超过就熔断回主界面
 
 class Game {
   constructor() {
@@ -60,6 +61,9 @@ class Game {
     this.steering = null
     this.keys = {}
     this.lastTs = 0
+    this._lastDt = 0.016
+    this._lastPointerY = 0
+    this._frameErrors = 0
     this.lbReturn = 'menu'
     this.hitStop = 0        // 受击卡帧剩余时间
     this.hitFlash = 0       // 受击红闪剩余时间
@@ -90,6 +94,7 @@ class Game {
     Platform.onTouch({
       start: (p) => {
         this.audio.unlock()
+        this._lastPointerY = p.y
         const action = this.ui.hitTest(p.x, p.y)
         if (action) {
           this._uiAction(action)
@@ -100,12 +105,23 @@ class Game {
         }
       },
       move: (p) => {
-        if (!this.steering || this.state !== 'playing') return
-        const dx = p.x - this.steering.x
-        const dy = p.y - this.steering.y
-        this.steering.x = p.x
-        this.steering.y = p.y
-        this.world.setTarget(this.world.target.x + dx * STEER_X, this.world.target.y - dy * STEER_Y)
+        if (this.steering) {
+          if (this.state !== 'playing') {
+            this.steering = null
+            return
+          }
+          const dx = p.x - this.steering.x
+          const dy = p.y - this.steering.y
+          this.steering.x = p.x
+          this.steering.y = p.y
+          this.world.setTarget(this.world.target.x + dx * STEER_X, this.world.target.y - dy * STEER_Y)
+          return
+        }
+        // 排行榜这类超长列表：不在飞行状态下的拖动交给 UI 滚动
+        if (this.ui.view.screen === 'leaderboard') {
+          this.ui.scrollBy(p.y - this._lastPointerY)
+          this._lastPointerY = p.y
+        }
       },
       end: () => {
         this.steering = null
@@ -133,6 +149,8 @@ class Game {
 
   _uiAction(action) {
     this.audio.unlock()
+    // 作答选项不播点击音，避免和答对/答错的音效叠在一起
+    if (action.indexOf('spell:') !== 0) this.audio.click()
     if (action === 'start' || action === 'retry') {
       this._startRun()
     } else if (action === 'home') {
@@ -238,7 +256,6 @@ class Game {
     const poem = this._pickPoem()
     this.spell.present(poem, (arr) => shuffle(this.rng, arr))
     this.state = 'spell'
-    this.world.spellActive = true
     this.audio.spell()
   }
 
@@ -265,7 +282,6 @@ class Game {
   _resumeAfterSpell() {
     const outcome = this.spell.outcome
     this.spell.clear()
-    this.world.spellActive = false
     if (outcome === 'correct') {
       this.state = 'playing'
       this.ui.setView({ screen: 'playing', hud: this._hudView() })
@@ -341,9 +357,38 @@ class Game {
   _loop(ts) {
     const dt = this.lastTs ? Math.min(0.05, Math.max(0.001, (ts - this.lastTs) / 1000)) : 0.016
     this.lastTs = ts
-    this._update(dt)
-    this._render()
+    this._lastDt = dt
+    try {
+      this._update(dt)
+      this._render()
+      this._frameErrors = 0
+    } catch (err) {
+      // 以前这里没有兜底：一旦 _update/_render 抛异常，下面的
+      // requestAnimationFrame 不会再被调用，画面永久冻结在最后一帧，
+      // 玩家只看到画面卡死且没有任何提示。现在兜住并做熔断。
+      this._frameErrors++
+      if (this._frameErrors === 1) console.error('[windwing] frame error', err)
+      if (this._frameErrors >= MAX_FRAME_ERRORS) {
+        this._frameErrors = 0
+        this._panicReset()
+      }
+    }
     requestAnimationFrame(this._loop)
+  }
+
+  /** 连续异常后的熔断恢复：回到主界面，别把玩家卡在半截状态机里 */
+  _panicReset() {
+    try {
+      this.steering = null
+      this.hitStop = 0
+      this.spawner.reset()
+      this.spell.clear()
+      this.speed.reset()
+      this._toMenu()
+      this.ui.showToast('出现异常，已返回主界面', 2.5)
+    } catch (e) {
+      console.error('[windwing] panic reset failed', e)
+    }
   }
 
   /** 当前速度（m/s）：速度模型 × 场景修正（诗咒慢放 / 冲刺倍率） */
@@ -395,10 +440,7 @@ class Game {
 
       // 生成
       this.spawner.advance(eff * dt)
-      if (
-        this.spawner.shouldSpawn(this.elapsed) &&
-        world.pool.active.length < C.SPAWN.maxActive
-      ) {
+      if (this.spawner.shouldSpawn(this.elapsed) && world.pool.active.length < C.SPAWN.maxActive) {
         this._spawnOne(this.spawner.spawn(this.elapsed, world.player))
       }
 
@@ -459,9 +501,8 @@ class Game {
       // 菜单/结算：世界缓慢漂移营造氛围
       world.speed = 4
       world.speedRatio = 0.05
-      world.spawnerIdle = (world.spawnerIdle || 0) + dt
       this.spawner.advance(world.speed * dt)
-      if (this.spawner.shouldSpawn(999) && world.pool.active.length < 10) {
+      if (this.spawner.shouldSpawn() && world.pool.active.length < 10) {
         this._spawnOne(this.spawner.spawn(999))
       }
     }
@@ -541,7 +582,9 @@ class Game {
     r.clearDepth()
     r.render(this.overlayScene, this.overlayCam)
     r.autoClear = true
-    this.ui.draw(0.016)
+    // 用真实帧间隔驱动 UI 动画：写死 0.016 的话，30fps 设备上
+    // toast / 闪色 / combo 动画的持续时间会翻倍
+    this.ui.draw(this._lastDt)
   }
 }
 

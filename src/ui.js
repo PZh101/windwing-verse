@@ -4,6 +4,7 @@
  */
 
 const THREE = require('../libs/three.min.js')
+const C = require('./config')
 
 const FONT = '"PingFang SC", "Microsoft YaHei", sans-serif'
 const KAI = '"KaiTi", "STKaiti", "PingFang SC", serif'
@@ -33,6 +34,8 @@ class UI {
     this.toast = null
     this.anim = 0
     this.fx = null // 全屏闪色 { color, t, dur, alpha }
+    this.listScroll = 0 // 排行榜滚动偏移
+    this._listMetrics = null // 排行榜视口几何，绘制时回填供 scrollBy 夹取
   }
 
   /** 绑定离屏画布与尺寸（css 尺寸 + 像素缩放） */
@@ -50,8 +53,18 @@ class UI {
   }
 
   setView(view) {
+    const changed = !this.view || this.view.screen !== view.screen
     this.view = view
     this.hotspots = []
+    // 换页时把滚动位置归零，否则从不同入口进排行榜会停在上次的位置
+    if (changed) this.listScroll = 0
+  }
+
+  /** 排行榜拖动滚动（由 main.js 在非飞行状态下转发触摸位移） */
+  scrollBy(dy) {
+    const m = this._listMetrics
+    if (!m || m.maxScroll <= 0 || !dy) return
+    this.listScroll = Math.max(0, Math.min(m.maxScroll, this.listScroll + dy))
   }
 
   /** 尺寸变化（浏览器窗口缩放；小游戏端竖屏锁定，一般不触发） */
@@ -321,8 +334,9 @@ class UI {
     }
 
     // 风羽
-    const feathers = hud.feathers == null ? 3 : hud.feathers
-    for (let i = 0; i < 3; i++) {
+    const maxFeathers = C.RULES.feathers
+    const feathers = hud.feathers == null ? maxFeathers : hud.feathers
+    for (let i = 0; i < maxFeathers; i++) {
       this._feather(this.w - 26 - i * 30, 44, 11, i < feathers)
     }
 
@@ -399,16 +413,15 @@ class UI {
     const parts = prompt.split('____')
     const font = `22px ${KAI}`
     ctx.font = font
-    const gapW = ctx.measureText('＿＿').width
     const maxW = pw - 48
-    let full = parts.join('＿＿')
-    while (ctx.measureText(full).width > maxW && full.length > 4) {
-      // 超长时缩字号
-      const size = parseInt(ctx.font, 10) - 1
+    // 超长时缩字号；下限 10px 再小就读不清了，交给调用方保证题干不过长
+    let size = 22
+    const measure = () => parts.join('＿＿')
+    while (ctx.measureText(measure()).width > maxW && size > 10) {
+      size--
       ctx.font = `${size}px ${KAI}`
-      full = parts.join('＿＿')
     }
-    const totalW = ctx.measureText(full).width
+    const totalW = ctx.measureText(measure()).width
     let cx = px + pw / 2 - totalW / 2
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
@@ -419,9 +432,12 @@ class UI {
       ctx.fillText(t, cx, ty)
       cx += ctx.measureText(t).width
     }
-    drawPart(parts[0], false)
-    drawPart('＿＿', true)
-    if (parts[1]) drawPart(parts[1], false)
+    // 按挖空数逐段渲染：只画 parts[0]/parts[1] 的话，
+    // 题库一旦出现多空题干，后面的句子会被静默丢掉
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) drawPart('＿＿', true)
+      drawPart(parts[i], false)
+    }
     ctx.textBaseline = 'alphabetic'
 
     // 出处（结算时显示）
@@ -578,26 +594,49 @@ class UI {
     const py = 56
     this._panel(px, py, pw, ph, 20)
 
+    const list = v.leaderboard || []
+
     ctx.textAlign = 'center'
     ctx.fillStyle = THEME.ink
     ctx.font = `bold 24px ${KAI}`
     ctx.fillText('本地排行榜', px + pw / 2, py + 40)
     ctx.font = `12px ${FONT}`
     ctx.fillStyle = THEME.sub
-    ctx.fillText('成绩保存在本机 · Top 50', px + pw / 2, py + 60)
+    ctx.fillText(
+      list.length ? `成绩保存在本机 · 共 ${list.length} 条 · 上下拖动查看` : '成绩保存在本机',
+      px + pw / 2,
+      py + 60
+    )
 
-    const list = v.leaderboard || []
+    // 视口 = 标题之下、「返回」按钮之上。以前这里是固定 12 行，
+    // 在 667px 高的屏上第 10 行起就压住按钮、第 12 行直接画出面板。
+    const btnY = py + ph - 60
+    const viewTop = py + 78
+    const viewH = Math.max(60, btnY - 12 - viewTop)
     const rowH = 44
-    let y = py + 84
+    const contentH = list.length * rowH
+    const maxScroll = Math.max(0, contentH - viewH)
+    this.listScroll = Math.max(0, Math.min(maxScroll, this.listScroll))
+    this._listMetrics = { rowH, viewTop, viewH, contentH, maxScroll }
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(px + 6, viewTop, pw - 12, viewH)
+    ctx.clip()
+
     if (!list.length) {
       ctx.fillStyle = THEME.sub
       ctx.font = `14px ${FONT}`
-      ctx.fillText('还没有记录，先去飞一局吧', px + pw / 2, y + 40)
+      ctx.textAlign = 'center'
+      ctx.fillText('还没有记录，先去飞一局吧', px + pw / 2, viewTop + 40)
     }
-    for (let i = 0; i < Math.min(list.length, 12); i++) {
+
+    for (let i = 0; i < list.length; i++) {
       const e = list[i]
+      const y = viewTop + i * rowH - this.listScroll
+      if (y + rowH < viewTop || y > viewTop + viewH) continue // 视口外跳过
       const rx = px + 16
-      const rw = pw - 32
+      const rw = pw - 32 - (maxScroll > 0 ? 8 : 0)
       if (i % 2 === 0) {
         this._roundRect(rx, y, rw, rowH - 4, 8)
         ctx.fillStyle = 'rgba(34,48,74,0.045)'
@@ -612,8 +651,7 @@ class UI {
       ctx.textAlign = 'left'
       ctx.fillStyle = THEME.ink
       ctx.font = `14px ${FONT}`
-      const name = e.name || '无名御风者'
-      ctx.fillText(name, rx + 42, y + rowH / 2 + 1)
+      ctx.fillText(e.name || '无名御风者', rx + 42, y + rowH / 2 + 1)
       // 距离
       ctx.font = `11px ${FONT}`
       ctx.fillStyle = THEME.sub
@@ -623,11 +661,24 @@ class UI {
       ctx.fillStyle = THEME.accent
       ctx.font = `bold 17px ${FONT}`
       ctx.fillText(String(e.score || 0), rx + rw - 14, y + rowH / 2 + 2)
-      y += rowH
+    }
+    ctx.restore()
+
+    // 滚动条：内容超出视口时给一个位置指示
+    if (maxScroll > 0) {
+      const trackX = px + pw - 10
+      const trackH = viewH
+      const knobH = Math.max(24, (viewH / contentH) * trackH)
+      const knobY = viewTop + (this.listScroll / maxScroll) * (trackH - knobH)
+      ctx.fillStyle = 'rgba(34,48,74,0.12)'
+      this._roundRect(trackX, viewTop, 4, trackH, 2)
+      ctx.fill()
+      ctx.fillStyle = 'rgba(34,48,74,0.45)'
+      this._roundRect(trackX, knobY, 4, knobH, 2)
+      ctx.fill()
     }
 
-    const bw = pw - 48
-    this._button('back', px + 24, py + ph - 60, bw, 46, '返 回', { size: 17, bg: THEME.accent })
+    this._button('back', px + 24, btnY, pw - 48, 46, '返 回', { size: 17, bg: THEME.accent })
   }
 
   // ---------------- Toast ----------------

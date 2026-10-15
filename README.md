@@ -46,7 +46,6 @@ src/
     collision.js      圆形碰撞判定（扫掠式防穿透，纯逻辑，可单测）
     speed.js          飞行速度模型（终端速度/撞击赤字/擦身提速）
     spell.js          诗咒挑战状态机（present/choose/timeout）
-    spell.js          诗咒挑战状态机（present/choose/timeout）
     scoring.js        计分与连击
   data/poems.js       诗句题库（95 组，含干扰项与出处）
   textures.js         程序化贴图（零外部图片，全部 Canvas 绘制）
@@ -58,31 +57,37 @@ src/
   storage.js          wx storage 封装
   leaderboard.js      本机排行榜
 tests/
-  run.js              单元测试入口（43 项断言）
+  run.js              单元测试入口（67 项断言）
   deps.check.js       require 路径与导出静态检查
+  platform.test.js    平台垫层双分支冒烟测试（浏览器 / 微信小游戏）
   e2e.js              端到端渲染验证（本地 Chrome/Edge 驱动）
   preview.html/js     浏览器预览脚手架
 ```
 
 ## 本地预览（浏览器）
 
+```bash
+npm run preview          # 默认 5173，可用 PORT=xxxx 覆盖
+# 打开 http://127.0.0.1:5173/tests/preview.html
 ```
-# 任意静态服务器指向项目根目录，例如：
-node -e "const h=require('http'),f=require('fs'),p=require('path');h.createServer((q,s)=>{let u=p.join(__dirname,decodeURIComponent(q.url.split('?')[0]));if(!f.existsSync(u)||f.statSync(u).isDirectory())u=p.join(__dirname,'tests/preview.html');s.setHeader('content-type',u.endsWith('.html')?'text/html;charset=utf-8':'application/javascript;charset=utf-8');s.end(f.readFileSync(u))}).listen(8137)"
-# 打开 http://127.0.0.1:8137/tests/preview.html
-```
+
+> 端口请避开 Windows 的 TCP 排除端口段（`netsh interface ipv4 show excludedportrange protocol=tcp`
+> 可查，常见机器含 8093–8192）。落在段内的端口会直接 `EACCES`，起不来。
 
 键盘：WASD/方向键转向，空格开始。
 
 ## 自动化验证
 
-```
-node tests/run.js          # 43 项逻辑单测（Node 直接跑，无需浏览器）
-node tests/deps.check.js   # 依赖图静态检查
-node tests/e2e.js          # 端到端：真实渲染跑通 菜单->飞行->诗咒->答对/答错->结算->排行榜
+```bash
+npm test                 # = node tests/run.js && node tests/deps.check.js
+node tests/run.js        # 67 项逻辑单测（Node 直接跑，无需浏览器）
+node tests/deps.check.js # 依赖图静态检查
+npm install              # 仅 e2e 需要，装 playwright-core
+npm run e2e              # 端到端：真实渲染跑通 菜单->飞行->诗咒->答对/答错->结算->排行榜
 ```
 
 e2e 依赖 `playwright-core` + 本机 Chrome/Edge，截图输出到 `tests/shots/`。
+它自己会起一个随机端口（不用固定端口，避开系统排除段）。
 
 ## 推送到 GitHub
 
@@ -111,5 +116,6 @@ bash push-to-github.sh
 ## 技术要点
 
 - 零外部资源：所有贴图（天空渐变、云海、翼面织物、碑面、岩石）均由 Canvas 程序化生成，包体只有 three.js 一个 603KB 依赖。
-- 双端垫层：`libs/platform.js` 抹平 wx 小游戏与浏览器的 canvas/触摸/存储/震动差异。
+- 双端垫层：`libs/platform.js` 抹平 wx 小游戏与浏览器的 canvas/触摸/存储/震动差异，并有 `tests/platform.test.js` 对两条分支各做一次冒烟——历史上正是小游戏分支导出成了 `null`，而所有测试都跑在浏览器分支上，所以没能拦住。
 - 逻辑与表现分离：碰撞、出题、计分是纯逻辑模块，全部可在 Node 下单测。
+- 全链路可复现：障碍生成用可播种 RNG，云板散布、粒子迸射、贴图噪声也统一走定种源，e2e 截图逐帧可比对。

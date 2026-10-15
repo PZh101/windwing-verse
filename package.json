@@ -1,0 +1,14 @@
+{
+  "name": "windwing-verse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "风翼诗咒 · 微信小游戏：3D 飞行躲避 × 名句默写。运行时零依赖（three.js r128 已内置于 libs/）。",
+  "scripts": {
+    "test": "node tests/run.js && node tests/deps.check.js",
+    "e2e": "node tests/e2e.js",
+    "preview": "node -e \"const h=require('http'),f=require('fs'),p=require('path'),r=process.cwd();h.createServer((q,s)=>{let u=p.join(r,decodeURIComponent(q.url.split('?')[0]));if(!f.existsSync(u)||f.statSync(u).isDirectory())u=p.join(r,'tests/preview.html');s.setHeader('content-type',u.endsWith('.html')?'text/html;charset=utf-8':'application/javascript;charset=utf-8');s.end(f.readFileSync(u))}).listen(process.env.PORT||5173,'127.0.0.1',()=>console.log('预览: http://127.0.0.1:'+(process.env.PORT||5173)+'/tests/preview.html'))\""
+  },
+  "devDependencies": {
+    "playwright-core": "^1.47.0"
+  }
+}

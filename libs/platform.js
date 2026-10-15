@@ -15,11 +15,21 @@
     typeof wx.createCanvas === 'function'
 
   const G = typeof globalThis !== 'undefined' ? globalThis : this
-  let Platform = null
+
+  /**
+   * 同时挂到全局与 module.exports。
+   * 两条分支都必须走这里——历史上小游戏分支误写成 `module.exports = Platform`
+   * 而 Platform 仍是初始的 null，导致微信端 require 拿到 null 直接崩。
+   */
+  function publish(platform) {
+    G.Platform = platform
+    if (typeof module !== 'undefined' && module && module.exports) module.exports = platform
+    return platform
+  }
 
   if (!isMiniGame) {
     // 浏览器：原样导出，供预览页使用
-    Platform = {
+    publish({
       isMiniGame: false,
       screen: () => ({
         width: window.innerWidth,
@@ -67,16 +77,18 @@
         canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handlers.start(toLocal(e)) }, { passive: false })
         canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handlers.move(toLocal(e)) }, { passive: false })
         canvas.addEventListener('touchend', (e) => { e.preventDefault(); handlers.end() }, { passive: false })
+        canvas.addEventListener('touchcancel', (e) => { e.preventDefault(); handlers.end() }, { passive: false })
         canvas.addEventListener('mousedown', (e) => handlers.start(toLocal(e)))
         canvas.addEventListener('mousemove', (e) => { if (e.buttons) handlers.move(toLocal(e)) })
         canvas.addEventListener('mouseup', () => handlers.end())
+        // 鼠标拖到窗口外或窗口失焦时不会收到 mouseup，不收尾会让转向状态永久卡住
+        const abort = () => handlers.end()
+        canvas.addEventListener('mouseleave', abort)
+        window.addEventListener('blur', abort)
       },
       vibrate: () => {},
       exit: () => {},
-    }
-    G.Platform = Platform
-    // eslint-disable-next-line no-undef
-    if (typeof module !== 'undefined' && module.exports) module.exports = Platform
+    })
     return
   }
 
@@ -145,7 +157,7 @@
     return sysInfo
   }
 
-  G.Platform = {
+  publish({
     isMiniGame: true,
     screen: () => {
       const s = sys()
@@ -193,7 +205,8 @@
         if (p) handlers.move({ x: p.clientX, y: p.clientY })
       })
       wx.onTouchEnd(() => handlers.end())
-      wx.onTouchCancel(() => handlers.end())
+      // 老版本基础库没有 onTouchCancel，注册失败不能连带整个游戏起不来
+      if (typeof wx.onTouchCancel === 'function') wx.onTouchCancel(() => handlers.end())
     },
     vibrate: (type) => {
       try {
@@ -207,9 +220,5 @@
         wx.exitMiniProgram()
       } catch (e) {}
     },
-  }
-
-  G.Platform = Platform
-  // eslint-disable-next-line no-undef
-  if (typeof module !== 'undefined' && module.exports) module.exports = Platform
+  })
 })()

@@ -8,23 +8,19 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 function loadPlaywright() {
-  const candidates = [
-    'playwright-core',
-    'C:/Users/zhoup/node_modules/playwright-core',
-    'C:/Users/zhoup/.workbuddy/binaries/node/workspace/node_modules/playwright-core',
-  ]
-  for (const c of candidates) {
-    try {
-      return require(c)
-    } catch (e) {}
+  try {
+    return require('playwright-core')
+  } catch (e) {
+    throw new Error('未找到 playwright-core，请先安装：npm install（依赖已在 package.json 中声明）')
   }
-  throw new Error('未找到 playwright-core，请先安装：npm i playwright-core')
 }
 const { chromium } = loadPlaywright()
 
 const ROOT = path.resolve(__dirname, '..')
 const SHOTS = path.join(__dirname, 'shots')
-const PORT = 8150 // 避开本地预览服占用的 8137
+// 端口交给系统分配（0）。原先写死 8150，而 Windows 的 TCP 排除端口段
+// （常见含 8093-8192）会把固定端口判成 EACCES，e2e 直接起不来。
+let PORT = 0
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -46,7 +42,10 @@ function serve() {
       res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' })
       res.end(fs.readFileSync(file))
     })
-    server.listen(PORT, '127.0.0.1', () => resolve(server))
+    server.listen(PORT, '127.0.0.1', () => {
+      PORT = server.address().port
+      resolve(server)
+    })
   })
 }
 
@@ -192,7 +191,15 @@ const BROWSERS = [
     const p = w.player
     w.spawn({ kind: 'rock', x: p.x, y: p.y, z: 0, scale: 1.2, radius: 1.35, seed: 7 })
   })
-  await page.waitForTimeout(500)
+  // 不要用固定 sleep 等撞击：闪屏只有 0.42s（ui.flash(color, 0.42)），
+  // 而之前 ui.draw() 写死 0.016 的 dt，低帧率下 UI 时间比真实时间慢一大截，
+  // sleep 500ms 还能"看到"闪屏；现在 UI 用真实 dt 了，500ms 早就过期了。
+  // 改成轮询条件，撞上就立刻取状态。
+  await page.waitForFunction(
+    () => window.__windwing.invincible > 0 || !!window.__windwing.ui.fx,
+    null,
+    { timeout: 5000 }
+  )
   const afterRock = await page.evaluate(() => ({
     feathers: window.__windwing.feathers,
     invincible: +window.__windwing.invincible.toFixed(2),
@@ -248,7 +255,6 @@ const BROWSERS = [
     const g = window.__windwing
     g.spell.clear()
     g.state = 'playing'
-    g.world.spellActive = false
     g.feathers = 1
     g.invincible = 0
     g.spawner.distanceSinceLast = -1e9

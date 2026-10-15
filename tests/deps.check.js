@@ -51,6 +51,18 @@ function pushKey(raw, names) {
   if (mm) names.add(mm[1] || mm[2] || mm[3])
 }
 
+/**
+ * 这行文本落在注释里还是真实代码里？
+ * 文档注释里常会写 `require('./foo')` 当例子，扫到就会误报「缺失依赖」。
+ * 只看该行 require 之前的部分是不是以 * 或 // 开头（覆盖本项目全部注释写法），
+ * 不做通用的注释剥离——那需要处理字符串里的 // （如 https://）反而更容易出错。
+ */
+function isInComment(src, index) {
+  const lineStart = src.lastIndexOf('\n', index - 1) + 1
+  const prefix = src.slice(lineStart, index).trim()
+  return prefix.startsWith('*') || prefix.startsWith('//') || prefix.startsWith('/*')
+}
+
 let errors = 0
 let checked = 0
 
@@ -60,6 +72,7 @@ for (const file of files) {
   const re = /require\(['"](\.[^'"]+)['"]\)/g
   let m
   while ((m = re.exec(src))) {
+    if (isInComment(src, m.index)) continue
     let target = path.resolve(path.dirname(file), m[1])
     if (!fs.existsSync(target)) target += '.js'
     if (!fs.existsSync(target)) {

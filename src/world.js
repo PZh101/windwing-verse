@@ -6,10 +6,15 @@
 const THREE = require('../libs/three.min.js')
 const C = require('./config')
 const T = require('./textures')
+const { createRng } = require('./rng')
 const { WindGlider } = require('./player')
 const { ObstaclePool } = require('./obstacles')
 
 const FOG_COLOR = 0x9cc6e8
+
+// 装饰性随机（云板散布、粒子迸射、尾迹抖动）统一走定种 RNG：
+// 既避免 Math.random() 让 e2e 截图每次都不一样，也便于复现视觉问题。
+const DECO_SEED = 0x5eed1e
 
 class World {
   /**
@@ -36,6 +41,9 @@ class World {
     this.camera = new THREE.PerspectiveCamera(C.CAMERA.fov, this.aspect, C.CAMERA.near, C.CAMERA.far)
     this.camera.position.set(0, C.PLAYFIELD.startY + C.CAMERA.offset.y, C.CAMERA.offset.z)
 
+    // 装饰性随机源要先于 _billboards() 建好，它一上来就要取随机数
+    this.rng = createRng(DECO_SEED)
+
     this._lights()
     this._sky()
     this._sea()
@@ -56,7 +64,6 @@ class World {
     this.speedRatio = 0
     this.shake = 0
     this.boosting = false
-    this.spellActive = false
     this.hidden = false
     this.falling = false
     this.fallT = 0
@@ -96,17 +103,18 @@ class World {
 
   _billboards() {
     const tex = T.cloudPuff()
+    const rnd = this.rng
     this.billboards = []
     for (let i = 0; i < C.WORLD.billboardCount; i++) {
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.55 + Math.random() * 0.35, depthWrite: false })
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.55 + rnd() * 0.35, depthWrite: false })
       )
-      const s = 6 + Math.random() * 9
+      const s = 6 + rnd() * 9
       m.scale.set(s, s * 0.55, 1)
       // 只布置在航道两侧，避免云板挡住前方障碍
-      m.position.set((6 + Math.random() * 20) * (Math.random() < 0.5 ? -1 : 1), 2 + Math.random() * 14, -20 - Math.random() * 110)
-      m.userData.speedFactor = 0.75 + Math.random() * 0.4
+      m.position.set((6 + rnd() * 20) * (rnd() < 0.5 ? -1 : 1), 2 + rnd() * 14, -20 - rnd() * 110)
+      m.userData.speedFactor = 0.75 + rnd() * 0.4
       this.scene.add(m)
       this.billboards.push(m)
     }
@@ -197,13 +205,14 @@ class World {
     const geo = new THREE.BufferGeometry()
     const pos = new Float32Array(n * 3)
     const vel = []
+    const rnd = this.rng
     for (let i = 0; i < n; i++) {
       pos[i * 3] = x
       pos[i * 3 + 1] = y
       pos[i * 3 + 2] = z
-      const a = Math.random() * Math.PI * 2
-      const r = 2 + Math.random() * 5
-      vel.push({ x: Math.cos(a) * r, y: Math.sin(a) * r + 1.5, z: (Math.random() - 0.5) * 3 })
+      const a = rnd() * Math.PI * 2
+      const r = 2 + rnd() * 5
+      vel.push({ x: Math.cos(a) * r, y: Math.sin(a) * r + 1.5, z: (rnd() - 0.5) * 3 })
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     const pts = new THREE.Points(
@@ -300,7 +309,7 @@ class World {
       } else if (ud.kind === 'storm') {
         o.rotation.y += dt * 0.4
         o.position.y = ud.baseY + Math.sin(this.time * 0.7 + ud.phase) * 0.3
-        if (ud.bolt) ud.bolt.material.opacity = 0.35 + Math.random() * 0.55
+        if (ud.bolt) ud.bolt.material.opacity = 0.35 + this.rng() * 0.55
       } else if (ud.kind === 'bird') {
         o.position.y = ud.baseY + Math.sin(this.time * 2.4 + ud.phase) * 0.35
         for (const b of o.children) {
@@ -311,13 +320,14 @@ class World {
 
     // ---- 云海 / 公告板滚动 ----
     this.sea.material.map.offset.y -= speed * dt * 0.0016
+    const rnd = this.rng
     for (const b of this.billboards) {
       b.position.z += speed * dt * b.userData.speedFactor
       // 在抵达相机（z≈7.2）之前回收，避免云板糊在镜头上
       if (b.position.z > -6) {
-        b.position.z = -120 - Math.random() * 30
-        b.position.x = (6 + Math.random() * 20) * (Math.random() < 0.5 ? -1 : 1)
-        b.position.y = 2 + Math.random() * 14
+        b.position.z = -120 - rnd() * 30
+        b.position.x = (6 + rnd() * 20) * (rnd() < 0.5 ? -1 : 1)
+        b.position.y = 2 + rnd() * 14
       }
     }
 
@@ -335,8 +345,8 @@ class World {
     this.camera.position.x = camX
     this.camera.position.y = camY
     if (this.shake > 0.001) {
-      this.camera.position.x += (Math.random() - 0.5) * this.shake * 0.5
-      this.camera.position.y += (Math.random() - 0.5) * this.shake * 0.5
+      this.camera.position.x += (this.rng() - 0.5) * this.shake * 0.5
+      this.camera.position.y += (this.rng() - 0.5) * this.shake * 0.5
       this.shake *= Math.pow(0.0015, dt)
     }
     this.camera.lookAt(this.player.x * 0.8, this.player.y * 0.6 + 0.4, -C.CAMERA.lookAhead)
@@ -351,11 +361,12 @@ class World {
     const tr = this.trail
     const pos = tr.geo.attributes.position.array
     const col = tr.geo.attributes.color.array
+    const rnd = this.rng
     // 发射 2 个新粒子（带横向散布，紧贴翼后）
     for (let s = 0; s < 2; s++) {
       const i = tr.cursor
-      pos[i * 3] = this.player.x + (Math.random() - 0.5) * 1.1
-      pos[i * 3 + 1] = this.player.y + (Math.random() - 0.5) * 0.4
+      pos[i * 3] = this.player.x + (rnd() - 0.5) * 1.1
+      pos[i * 3 + 1] = this.player.y + (rnd() - 0.5) * 0.4
       pos[i * 3 + 2] = 0.9
       tr.life[i] = 1
       tr.cursor = (tr.cursor + 1) % tr.life.length
@@ -405,8 +416,7 @@ class World {
       }
       if (p >= 1) {
         this.scene.remove(e)
-        if (e.geometry && e.geometry !== this.shockGeo) e.geometry.dispose()
-        if (e.material) e.material.dispose()
+        this._disposeEffect(e)
         this.effects.splice(i, 1)
       }
     }
@@ -424,9 +434,22 @@ class World {
     this.camera.updateProjectionMatrix()
   }
 
+  /**
+   * 释放一批一次性特效的 GPU 资源。
+   * shockGeo 是共享原型几何体，不能 dispose，否则之后新建的冲击波就没了。
+   */
+  _disposeEffect(e) {
+    if (e.geometry && e.geometry !== this.shockGeo) e.geometry.dispose()
+    if (e.material) e.material.dispose()
+  }
+
   reset() {
     this.pool.clearAll()
-    for (const e of this.effects) this.scene.remove(e)
+    // 光 remove 不 dispose 的话，每次重开一局都会漏一批 geometry/material
+    for (const e of this.effects) {
+      this.scene.remove(e)
+      this._disposeEffect(e)
+    }
     this.effects.length = 0
     this.player.x = C.PLAYFIELD.startX
     this.player.y = C.PLAYFIELD.startY
@@ -439,6 +462,7 @@ class World {
     this.falling = false
     this.fallT = 0
     this.fallSpin = 0
+    this.boosting = false
   }
 }
 

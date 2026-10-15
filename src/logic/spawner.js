@@ -8,7 +8,7 @@
  *   玩家不能靠躲在固定角落永久免疫。
  */
 
-const { PLAYFIELD, SPAWN, OBSTACLE } = require('../config')
+const { PLAYFIELD, SPAWN, OBSTACLE, BIRD_SPREAD } = require('../config')
 const { range, rangeInt, weighted, pick } = require('../rng')
 
 class Spawner {
@@ -22,7 +22,6 @@ class Spawner {
 
   reset() {
     this.distanceSinceLast = 1e9   // 立刻生成第一个
-    this.spawnCount = 0            // 已生成障碍数（不含诗碑）
     this.sincePoem = 0             // 距上一座诗碑的普通障碍数
     this.nextPoemAt = rangeInt(this.rng, SPAWN.poemEveryMin, SPAWN.poemEvery)
 
@@ -33,6 +32,11 @@ class Spawner {
     this.lastBand = -1
     this.aimedLane = false
     this.aimedBand = false
+
+    // 本次生成的间距在「生成那一刻」定下来。
+    // 以前是 shouldSpawn() 每帧重摇一次，等于目标间距逐帧漂移，实际生成
+    // 距离的分布被扭曲，而且白白吃掉每帧一个随机数。
+    this.nextInterval = this.interval(0)
   }
 
   /** 当前难度系数 0..1（随飞行时间增长） */
@@ -50,11 +54,13 @@ class Spawner {
 
   /**
    * 是否该生成新障碍
-   * @param {number} elapsed 飞行时间 s
+   * 判定只看累计距离，与本帧的随机数无关（间距已在生成/重置时定好）。
+   * 保留 elapsed 形参是为了不破坏既有调用与单测。
+   * @param {number} [elapsed] 飞行时间 s（未参与判定）
    * @returns {boolean}
    */
   shouldSpawn(elapsed) {
-    return this.distanceSinceLast >= this.interval(elapsed)
+    return this.distanceSinceLast >= this.nextInterval
   }
 
   /**
@@ -141,8 +147,11 @@ class Spawner {
   _makeDesc(kind, isPoem, lane, band, tl, tb) {
     const size = OBSTACLE[kind]
     const scale = range(this.rng, size.scale[0], size.scale[1])
-    const radius = size.radius * scale
     const flock = kind === 'bird' ? rangeInt(this.rng, 1, 3) : 1
+    // 鸟群在 x 向以 BIRD_SPREAD 为间距左右展开，碰撞圆必须把整个翼展包进去，
+    // 只用单只半径会出现「最边上那只鸟看得见却撞不到」
+    const spread = kind === 'bird' ? ((flock - 1) / 2) * BIRD_SPREAD : 0
+    const radius = (size.radius + spread) * scale
     return {
       kind,
       isPoem,
@@ -180,7 +189,6 @@ class Spawner {
       this.nextPoemAt = rangeInt(this.rng, SPAWN.poemEveryMin, SPAWN.poemEvery)
     } else {
       this.sincePoem++
-      this.spawnCount++
     }
 
     const lane = this._pickLane(aim && aim.x, aimChance)
@@ -200,11 +208,18 @@ class Spawner {
           const cl = pick(this.rng, cands)
           const cb = (band + 1 + rangeInt(this.rng, 0, SPAWN.bands - 2)) % SPAWN.bands
           desc.companion = this._makeDesc(type, false, cl, cb)
+          // 伴生障碍同样占用了轨道与层，必须记进「最久未用」账本，
+          // 否则反驻守的覆盖统计会漏算它，轨道覆盖出现偏差
+          this.laneLast[cl] = this.tick
+          this.bandLast[cb] = this.tick
+          this.lastLane = cl
+          this.lastBand = cb
         }
       }
     }
 
     this.distanceSinceLast = 0
+    this.nextInterval = this.interval(elapsed)
     return desc
   }
 

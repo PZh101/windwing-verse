@@ -11,6 +11,15 @@ const storage = require('./storage')
 const KEY = 'leaderboard.v1'
 const MAX_ENTRIES = 50
 
+/**
+ * 按「字符」而不是「码元」截断昵称。
+ * String.slice(0,12) 会把 emoji 之类的代理对切成半个乱码。
+ */
+function trimName(name, max) {
+  const chars = Array.from(String(name || '').trim())
+  return chars.slice(0, max || 12).join('')
+}
+
 function loadAll() {
   const list = storage.get(KEY, [])
   return Array.isArray(list) ? list : []
@@ -29,7 +38,7 @@ function submit(entry) {
   const list = loadAll()
   const prevBest = list.length ? list[0].score : 0
   const record = {
-    name: String(entry.name || '无名御风者').slice(0, 12),
+    name: trimName(entry.name, 12) || '无名御风者',
     score: Math.floor(entry.score || 0),
     distance: Math.floor(entry.distance || 0),
     combo: entry.combo || 0,
@@ -57,12 +66,12 @@ function top(n) {
 
 /** 昵称 */
 function getNickname() {
-  return storage.get('nickname', '无名御风者')
+  const v = storage.get('nickname', '无名御风者')
+  return typeof v === 'string' && v ? v : '无名御风者'
 }
 
 function setNickname(name) {
-  const v = String(name || '').trim().slice(0, 12)
-  storage.set('nickname', v || '无名御风者')
+  storage.set('nickname', trimName(name, 12) || '无名御风者')
   return getNickname()
 }
 
