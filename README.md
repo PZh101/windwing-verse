@@ -84,6 +84,21 @@ node tests/e2e.js          # 端到端：真实渲染跑通 菜单->飞行->诗�
 
 e2e 依赖 `playwright-core` + 本机 Chrome/Edge，截图输出到 `tests/shots/`。
 
+## 推送到 GitHub
+
+本地仓库已初始化在 `main` 分支，执行脚本即可（Git Bash）：
+
+```bash
+bash push-to-github.sh
+```
+
+脚本会自动分流：
+
+- **装了 `gh`**：浏览器 OAuth 授权 → 自动创建私有仓库 `windwing-verse` → 推送。
+- **没装 `gh`**：提示先在 [github.com/new](https://github.com/new) 建一个**空**仓库（不要勾选 README/LICENSE），输入用户名后推送；弹窗即系统凭据管理器，凭据不落盘到项目里。
+
+> 若推送卡住或超时，是终端缺代理：`git config --global http.proxy http://127.0.0.1:<端口>`（`https.proxy` 同理）。
+
 ## 如何发布到微信（可被搜索到）
 
 1. 用微信开发者工具导入本项目（编译类型：小游戏；测试可用 touristappid）。
