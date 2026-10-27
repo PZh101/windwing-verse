@@ -228,10 +228,11 @@ class UI {
     ctx.stroke()
   }
 
-  /** 胶囊小标签（3D 场景上保证可读） */
+  /** 胶囊小标签（3D 场景上保证可读）；save/restore 隔离 textAlign 等状态，避免泄漏给后续绘制 */
   _chip(text, cx, cy, opts) {
     const o = opts || {}
     const ctx = this.ctx
+    ctx.save()
     ctx.font = `${o.bold ? 'bold ' : ''}${o.size || 12}px ${o.kai ? KAI : FONT}`
     const tw = ctx.measureText(text).width
     const w = tw + (o.pad || 24)
@@ -247,7 +248,7 @@ class UI {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(text, cx, cy + 0.5)
-    ctx.textBaseline = 'alphabetic'
+    ctx.restore()
     return w
   }
 
@@ -275,6 +276,7 @@ class UI {
     }
     ctx.fill()
     ctx.restore()
+    ctx.save()
     if (o.border) {
       this._roundRect(x, y + dy, w, h, r)
       ctx.strokeStyle = o.border
@@ -292,14 +294,15 @@ class UI {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(label, x + w / 2, y + dy + h / 2 + 1)
-    ctx.textBaseline = 'alphabetic'
+    ctx.restore()
     this.hotspots.push({ action, x, y, w, h })
   }
 
-  /** 圆形序号/字母徽章 */
+  /** 圆形序号/字母徽章；save/restore 隔离 textAlign/textBaseline，避免泄漏 */
   _badge(text, cx, cy, r, opts) {
     const o = opts || {}
     const ctx = this.ctx
+    ctx.save()
     ctx.beginPath()
     ctx.arc(cx, cy, r, 0, Math.PI * 2)
     ctx.fillStyle = o.bg || THEME.accentSoft
@@ -314,7 +317,7 @@ class UI {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(text, cx, cy + 0.5)
-    ctx.textBaseline = 'alphabetic'
+    ctx.restore()
   }
 
   _feather(x, y, r, alive) {
@@ -384,6 +387,7 @@ class UI {
         this._badge(String(i + 1), px + 30, ry - 4, 10, { size: 11 })
         ctx.font = `13px ${FONT}`
         ctx.fillStyle = THEME.sub
+        ctx.textAlign = 'left'
         ctx.fillText(t, px + 48, ry)
       })
     })
