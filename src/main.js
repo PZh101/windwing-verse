@@ -59,6 +59,7 @@ class Game {
     this.resolveT = 0
     this.result = null
     this.steering = null
+    this.downAction = null // 按下但未松开的按钮 action
     this.keys = {}
     this.lastTs = 0
     this._lastDt = 0.016
@@ -97,14 +98,22 @@ class Game {
         this._lastPointerY = p.y
         const action = this.ui.hitTest(p.x, p.y)
         if (action) {
-          this._uiAction(action)
+          // 按下只记录 + 给视觉反馈，真正触发放在松开时（且手指仍停在按钮上）
+          this.downAction = action
+          this.ui.setPressed(action)
           return
         }
+        this.downAction = null
         if (this.state === 'playing') {
           this.steering = { x: p.x, y: p.y }
         }
       },
       move: (p) => {
+        if (this.downAction) {
+          // 滑出按钮就撤销按下态，滑回来恢复——和原生按钮行为一致
+          this.ui.setPressed(this.ui.hitTest(p.x, p.y) === this.downAction ? this.downAction : null)
+          return
+        }
         if (this.steering) {
           if (this.state !== 'playing') {
             this.steering = null
@@ -123,8 +132,16 @@ class Game {
           this._lastPointerY = p.y
         }
       },
-      end: () => {
+      end: (p) => {
         this.steering = null
+        if (this.downAction) {
+          const action = this.downAction
+          this.downAction = null
+          this.ui.setPressed(null)
+          // 松开坐标缺失时（touchcancel 等）宽容处理：仍处于按下态就触发
+          const hit = p ? this.ui.hitTest(p.x, p.y) : action
+          if (hit === action) this._uiAction(action)
+        }
       },
     })
   }
@@ -155,6 +172,10 @@ class Game {
       this._startRun()
     } else if (action === 'home') {
       this._toMenu()
+    } else if (action === 'pause') {
+      this._pause()
+    } else if (action === 'resume') {
+      this._resume()
     } else if (action === 'leaderboard') {
       this.lbReturn = this.state === 'gameover' ? 'gameover' : 'menu'
       this.ui.setView({ screen: 'leaderboard', leaderboard: leaderboard.top(50) })
@@ -193,6 +214,8 @@ class Game {
     this.world.hurtT = 0
     this.hitStop = 0
     this.hitFlash = 0
+    this.downAction = null
+    this.ui.setPressed(null)
     this.speed.reset()
     this.speedHit = 0
     this.audio.whoosh()
@@ -202,8 +225,26 @@ class Game {
   _toMenu() {
     this.state = 'menu'
     this.sub = null
+    this.steering = null
+    this.downAction = null
+    this.ui.setPressed(null)
     this.world.reset()
     this._refreshMenuView()
+  }
+
+  /** 暂停：只在飞行中开放（诗咒限时作答不允许暂停，否则等于无限思考时间） */
+  _pause() {
+    if (this.state !== 'playing') return
+    this.state = 'paused'
+    this.steering = null
+    this.world.hidden = false
+    this.ui.setView({ screen: 'paused', hud: this._hudView() })
+  }
+
+  _resume() {
+    if (this.state !== 'paused') return
+    this.state = 'playing'
+    this.ui.setView({ screen: 'playing', hud: this._hudView() })
   }
 
   _refreshMenuView() {
@@ -408,6 +449,11 @@ class Game {
     }
     if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - rawDt)
     const world = this.world
+    // 暂停：世界完全冻结，只推进 UI（面板动画/按钮按下态）
+    if (this.state === 'paused') {
+      this.ui.setView({ screen: 'paused', hud: this._hudView() })
+      return
+    }
     const inFlight = this.state === 'playing' || this.state === 'spell'
 
     // 键盘转向（浏览器预览）
@@ -520,6 +566,7 @@ class Game {
       outcome: s.outcome,
       source: s.poem ? s.poem.source : '',
       timeRatio: s.timeRatio(),
+      timeLeft: Math.max(0, Math.ceil(s.remaining)),
     }
   }
 

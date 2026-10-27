@@ -70,17 +70,18 @@
       onTouch: (handlers) => {
         const canvas = document.getElementById('game')
         const toLocal = (e) => {
-          const t = e.touches && e.touches[0] ? e.touches[0] : e
+          // touchend 时 touches 已空，必须退到 changedTouches，否则按钮"松开才触发"拿不到坐标
+          const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e
           const r = canvas.getBoundingClientRect()
           return { x: t.clientX - r.left, y: t.clientY - r.top }
         }
         canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handlers.start(toLocal(e)) }, { passive: false })
         canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handlers.move(toLocal(e)) }, { passive: false })
-        canvas.addEventListener('touchend', (e) => { e.preventDefault(); handlers.end() }, { passive: false })
+        canvas.addEventListener('touchend', (e) => { e.preventDefault(); handlers.end(toLocal(e)) }, { passive: false })
         canvas.addEventListener('touchcancel', (e) => { e.preventDefault(); handlers.end() }, { passive: false })
         canvas.addEventListener('mousedown', (e) => handlers.start(toLocal(e)))
         canvas.addEventListener('mousemove', (e) => { if (e.buttons) handlers.move(toLocal(e)) })
-        canvas.addEventListener('mouseup', () => handlers.end())
+        canvas.addEventListener('mouseup', (e) => handlers.end(toLocal(e)))
         // 鼠标拖到窗口外或窗口失焦时不会收到 mouseup，不收尾会让转向状态永久卡住
         const abort = () => handlers.end()
         canvas.addEventListener('mouseleave', abort)
@@ -204,7 +205,10 @@
         const p = t.touches && t.touches[0]
         if (p) handlers.move({ x: p.clientX, y: p.clientY })
       })
-      wx.onTouchEnd(() => handlers.end())
+      wx.onTouchEnd((t) => {
+        const p = (t.changedTouches && t.changedTouches[0]) || (t.touches && t.touches[0])
+        handlers.end(p ? { x: p.clientX, y: p.clientY } : null)
+      })
       // 老版本基础库没有 onTouchCancel，注册失败不能连带整个游戏起不来
       if (typeof wx.onTouchCancel === 'function') wx.onTouchCancel(() => handlers.end())
     },
